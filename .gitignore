@@ -1,0 +1,9 @@
+/vendor/
+/node_modules/
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+/assets/js/*.min.js
+/assets/css/*.min.css
