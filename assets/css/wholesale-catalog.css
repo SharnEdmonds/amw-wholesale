@@ -1,0 +1,21 @@
+.amw-wholesale-catalog { max-width: 1100px; margin: 2em auto; padding: 0 1em; }
+.amw-wholesale-catalog h1 { margin-bottom: 0.25em; }
+.amw-wholesale-intro { color: #555; margin-top: 0; margin-bottom: 1.5em; }
+
+.amw-wholesale-catalog-table { width: 100%; border-collapse: collapse; }
+.amw-wholesale-catalog-table th,
+.amw-wholesale-catalog-table td { padding: 0.5em 0.75em; border-bottom: 1px solid #e5e5e5; text-align: left; vertical-align: middle; }
+.amw-wholesale-catalog-table th { background: #fafafa; font-weight: 600; }
+.amw-wholesale-catalog-table .amw-qty-input { width: 5em; }
+.amw-wholesale-catalog-table .amw-line-total { font-variant-numeric: tabular-nums; }
+.amw-wholesale-catalog-table .amw-unit-price { font-variant-numeric: tabular-nums; }
+
+.amw-wholesale-builder { margin-top: 3em; padding: 1.5em; border: 1px solid #e5e5e5; border-radius: 6px; background: #fafafa; }
+.amw-wholesale-builder h2 { margin-top: 0; }
+.amw-quote-lines { list-style: none; padding: 0; margin: 0 0 1em 0; }
+.amw-quote-lines li { padding: 0.25em 0; border-bottom: 1px dashed #eee; display: flex; justify-content: space-between; align-items: center; }
+.amw-quote-lines li button { margin-left: 1em; background: transparent; border: 0; color: #888; cursor: pointer; font-size: 1.1em; }
+.amw-quote-total { font-size: 1.1em; }
+.amw-wholesale-builder textarea { width: 100%; margin: 0.25em 0 1em 0; }
+.amw-submit-btn { padding: 0.5em 1.25em; font-weight: 600; cursor: pointer; }
+.amw-submit-result { margin-top: 0.75em; color: #444; }
