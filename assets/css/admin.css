@@ -1,0 +1,27 @@
+.amw-wholesale-editor .amw-status,
+.amw-wholesale-customers .amw-status,
+.wp-list-table .amw-status {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 10px;
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	background: #e0e0e0;
+	color: #333;
+}
+.amw-status-draft     { background: #eee; color: #555; }
+.amw-status-submitted { background: #d6ebff; color: #004a7f; }
+.amw-status-reviewing { background: #fff3cd; color: #7a5800; }
+.amw-status-approved  { background: #d4edda; color: #1b5e20; }
+.amw-status-rejected  { background: #f8d7da; color: #7a1e2c; }
+.amw-status-invoiced  { background: #cce5ff; color: #003470; }
+.amw-status-paid      { background: #c7f0c9; color: #0f4d12; }
+.amw-status-expired   { background: #e2e3e5; color: #5a5f63; }
+
+.amw-lines .num { text-align: right; }
+.amw-lines input[type=number] { width: 7em; text-align: right; }
+
+.amw-wholesale-editor .amw-actions button { margin-right: 0.5em; }
+
+.amw-rule-form textarea { font-family: monospace; font-size: 12px; }

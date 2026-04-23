@@ -5,15 +5,19 @@
 
 namespace AMW\Wholesale;
 
+use AMW\Wholesale\Account\Endpoint_Router;
+use AMW\Wholesale\Account\My_Account_Tabs;
+use AMW\Wholesale\Admin\Admin_Menu;
 use AMW\Wholesale\Catalog\Wholesale_Catalog;
+use AMW\Wholesale\Compat\Compat_Checker;
 use AMW\Wholesale\Customers\Customer_Roles;
+use AMW\Wholesale\Emails\Email_Dispatcher;
 use AMW\Wholesale\Invoices\Invoice_HTML_Renderer;
 use AMW\Wholesale\Invoices\Invoice_Renderer_Interface;
 use AMW\Wholesale\Invoices\Invoice_Repository;
 use AMW\Wholesale\Invoices\Invoice_Service;
 use AMW\Wholesale\Pricing\Pricing_Cache;
 use AMW\Wholesale\Pricing\Pricing_Engine;
-use AMW\Wholesale\Quotes\Quote_Notifier;
 use AMW\Wholesale\Quotes\Quote_Repository;
 use AMW\Wholesale\Quotes\Quote_Service;
 use AMW\Wholesale\Rest\REST_Customers;
@@ -33,11 +37,15 @@ final class Plugin {
 	public Pricing_Engine $pricing_engine;
 	public Quote_Repository $quote_repository;
 	public Quote_Service $quote_service;
-	public Quote_Notifier $quote_notifier;
 	public Invoice_Repository $invoice_repository;
 	public Invoice_Renderer_Interface $invoice_renderer;
 	public Invoice_Service $invoice_service;
 	public Wholesale_Catalog $catalog;
+	public Endpoint_Router $endpoint_router;
+	public My_Account_Tabs $my_account_tabs;
+	public Email_Dispatcher $email_dispatcher;
+	public Admin_Menu $admin_menu;
+	public Compat_Checker $compat_checker;
 
 	public static function instance(): self {
 		if ( null === self::$instance ) {
@@ -68,7 +76,6 @@ final class Plugin {
 		$this->pricing_engine     = new Pricing_Engine( $this->pricing_cache );
 		$this->quote_repository   = new Quote_Repository();
 		$this->quote_service      = new Quote_Service( $this->quote_repository, $this->pricing_engine );
-		$this->quote_notifier     = new Quote_Notifier( $this->quote_service );
 		$this->invoice_repository = new Invoice_Repository();
 		$this->invoice_renderer   = new Invoice_HTML_Renderer();
 		$this->invoice_service    = new Invoice_Service(
@@ -76,12 +83,26 @@ final class Plugin {
 			$this->invoice_renderer,
 			$this->quote_service
 		);
-		$this->catalog = new Wholesale_Catalog( $this->pricing_engine );
+		$this->catalog          = new Wholesale_Catalog( $this->pricing_engine );
+		$this->endpoint_router  = new Endpoint_Router(
+			$this->quote_repository,
+			$this->quote_service,
+			$this->invoice_repository,
+			$this->invoice_service
+		);
+		$this->my_account_tabs  = new My_Account_Tabs( $this->quote_repository, $this->invoice_repository );
+		$this->email_dispatcher = new Email_Dispatcher();
+		$this->admin_menu       = new Admin_Menu();
+		$this->compat_checker   = new Compat_Checker();
 	}
 
 	private function register_hooks(): void {
-		$this->quote_notifier->register();
 		$this->catalog->register();
+		$this->endpoint_router->register();
+		$this->my_account_tabs->register();
+		$this->email_dispatcher->register();
+		$this->admin_menu->register();
+		$this->compat_checker->register();
 
 		add_action( 'rest_api_init', [ $this, 'register_rest_routes' ] );
 
