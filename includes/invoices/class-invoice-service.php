@@ -124,14 +124,10 @@ final class Invoice_Service {
 			return null;
 		}
 
-		// Plan specifies 'awaiting-payment' — that's a custom status that needs
-		// registration via woocommerce_register_shop_order_post_statuses. Until
-		// that lands in the admin-polish slice we use WC's built-in 'on-hold',
-		// which semantically means "awaiting payment confirmation."
 		$order = wc_create_order(
 			[
 				'customer_id' => $quote->customer_id,
-				'status'      => 'on-hold',
+				'status'      => Awaiting_Payment_Status::STATUS_SLUG,
 			]
 		);
 		if ( is_wp_error( $order ) || ! $order ) {

@@ -22,6 +22,9 @@ define( 'AMW_WHOLESALE_FILE', __FILE__ );
 define( 'AMW_WHOLESALE_PATH', plugin_dir_path( __FILE__ ) );
 define( 'AMW_WHOLESALE_URL', plugin_dir_url( __FILE__ ) );
 
+if ( file_exists( AMW_WHOLESALE_PATH . 'vendor/autoload.php' ) ) {
+	require_once AMW_WHOLESALE_PATH . 'vendor/autoload.php';
+}
 require_once AMW_WHOLESALE_PATH . 'includes/autoload.php';
 
 add_action(

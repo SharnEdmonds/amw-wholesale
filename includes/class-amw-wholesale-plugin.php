@@ -12,7 +12,9 @@ use AMW\Wholesale\Catalog\Wholesale_Catalog;
 use AMW\Wholesale\Compat\Compat_Checker;
 use AMW\Wholesale\Customers\Customer_Roles;
 use AMW\Wholesale\Emails\Email_Dispatcher;
+use AMW\Wholesale\Invoices\Awaiting_Payment_Status;
 use AMW\Wholesale\Invoices\Invoice_HTML_Renderer;
+use AMW\Wholesale\Invoices\Invoice_PDF_Renderer;
 use AMW\Wholesale\Invoices\Invoice_Renderer_Interface;
 use AMW\Wholesale\Invoices\Invoice_Repository;
 use AMW\Wholesale\Invoices\Invoice_Service;
@@ -46,6 +48,7 @@ final class Plugin {
 	public Email_Dispatcher $email_dispatcher;
 	public Admin_Menu $admin_menu;
 	public Compat_Checker $compat_checker;
+	public Awaiting_Payment_Status $awaiting_payment_status;
 
 	public static function instance(): self {
 		if ( null === self::$instance ) {
@@ -77,7 +80,9 @@ final class Plugin {
 		$this->quote_repository   = new Quote_Repository();
 		$this->quote_service      = new Quote_Service( $this->quote_repository, $this->pricing_engine );
 		$this->invoice_repository = new Invoice_Repository();
-		$this->invoice_renderer   = new Invoice_HTML_Renderer();
+		$this->invoice_renderer   = class_exists( \Dompdf\Dompdf::class )
+			? new Invoice_PDF_Renderer()
+			: new Invoice_HTML_Renderer();
 		$this->invoice_service    = new Invoice_Service(
 			$this->invoice_repository,
 			$this->invoice_renderer,
@@ -91,9 +96,10 @@ final class Plugin {
 			$this->invoice_service
 		);
 		$this->my_account_tabs  = new My_Account_Tabs( $this->quote_repository, $this->invoice_repository );
-		$this->email_dispatcher = new Email_Dispatcher();
-		$this->admin_menu       = new Admin_Menu();
-		$this->compat_checker   = new Compat_Checker();
+		$this->email_dispatcher       = new Email_Dispatcher();
+		$this->admin_menu             = new Admin_Menu();
+		$this->compat_checker         = new Compat_Checker();
+		$this->awaiting_payment_status = new Awaiting_Payment_Status();
 	}
 
 	private function register_hooks(): void {
@@ -103,6 +109,7 @@ final class Plugin {
 		$this->email_dispatcher->register();
 		$this->admin_menu->register();
 		$this->compat_checker->register();
+		$this->awaiting_payment_status->register();
 
 		add_action( 'rest_api_init', [ $this, 'register_rest_routes' ] );
 
