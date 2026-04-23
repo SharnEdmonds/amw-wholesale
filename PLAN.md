@@ -14,19 +14,22 @@ Success criteria: the new plugin ships **fewer features than WholesaleX but does
 
 ---
 
-## Step 0 — Scaffold the plugin repo (prerequisite for Ultraplan handoff)
+## Status
 
-Ultraplan requires a git repo. The AMW workspace root isn't one and we don't want to `git init` it (the sibling plugins each have their own `.git`). Instead, create the new plugin's directory as its own repo from day one — matching the existing sibling plugin convention.
+Repo scaffolded (branch `main`, initial commit `63ca765`). Implementation not yet started.
 
-1. **Create** `C:\Users\sharn\Desktop\AMW-LIVE_SOFTWARE\Plugins\amw-wholesale\` (parent `Plugins\` exists — memory confirms siblings live there).
-2. **`git init`** inside it; set default branch to `main` via `git symbolic-ref HEAD refs/heads/main`.
-3. **Write `.gitignore`** — covers WordPress/PHP noise (`/vendor/`, `/node_modules/`, `*.log`, `.DS_Store`, `Thumbs.db`, `.idea/`, `.vscode/`, `/assets/js/*.min.js`, `/assets/css/*.min.css`).
-4. **Write stub `README.md`** — one paragraph: "AMW-internal B2B wholesale replacement for WholesaleX. Quote-first flow, PDF invoices, WooCommerce-native. See PLAN.md for full implementation plan."
-5. **Copy this plan** to `Plugins\amw-wholesale\PLAN.md` so Ultraplan sees it as the artifact to refine.
-6. **Initial commit** — `git add .` then `git commit -m "Scaffold amw-wholesale plugin repo with initial plan"`. No remote pushed.
-7. **Re-invoke `/ultraplan`** from inside the new directory.
+---
 
-Verification: `git status` clean on `main`, one commit in `git log`, `/ultraplan` proceeds past the git check.
+## Out of scope for v1 (deliberately)
+
+Per scope decisions: **AMW internal only, PDF-only invoices, WP-Cron polling, quote-first, dedicated catalog page, full replacement**. Therefore these are **not** in v1:
+
+- License server, customer activation, signed update delivery
+- HMAC-signed webhook receiver
+- Xero / MYOB accounting integration (manual mark-as-paid only)
+- Sub-accounts, wallet, conversations, request-a-quote-on-product (WholesaleX Pro addons we don't need)
+- B2B pricing on the main retail storefront (only the dedicated /wholesale page shows B2B prices)
+- Migrating WholesaleX data — fresh start was chosen; ops team re-enters roles/tiers during cutover
 
 ---
 
@@ -43,11 +46,11 @@ Verification: `git status` clean on `main`, one commit in `git log`, `/ultraplan
 - No `unserialize()` on user input anywhere — JSON only
 - WooCommerce HPOS declared at load time (pattern from both VRS line 51–55 and APA line 51–55)
 
-**Fix WholesaleX's specific gaps** (found during exploration):
-- Email read without sanitization (`registration.php:1185`) — sanitize immediately on `$_POST` read
-- `$_REQUEST` access without nonce (`initialization.php:242–245`) — nonce-gate all mutating endpoints
-- `wp_kses_post()` used on email subjects — use `sanitize_text_field()`
-- Implicit rule `RuleInterface` — we define a formal `RuleInterface` PHP interface so rule handlers are contract-bound
+**Observed anti-patterns in WholesaleX to avoid** (from exploration):
+- `$_POST` email read without sanitization — sanitize immediately on read
+- `$_REQUEST` mutations without nonce — nonce-gate all mutating endpoints
+- `wp_kses_post()` applied to email subject lines — use `sanitize_text_field()`
+- Implicit duck-typed rule contract — we define a formal `Price_Rule_Interface` PHP interface so rule handlers are contract-bound
 
 ---
 
@@ -120,8 +123,19 @@ amw-wholesale/
 │       └── admin-quote-editor.js
 ├── templates/
 │   └── emails/                               (overridable by theme: amw-wholesale/emails/...)
-└── vendor/
-    └── dompdf/                               (PDF generation — single dependency, bundled)
+├── tests/
+│   ├── bootstrap.php
+│   ├── unit/
+│   │   ├── PricingEngineTest.php
+│   │   ├── QuoteStateMachineTest.php
+│   │   └── SanitizerTest.php
+│   └── integration/
+│       └── InvoiceGenerationTest.php
+├── phpunit.xml
+├── composer.json                             (pins dompdf/dompdf:^3.0, PSR-4 autoload)
+├── composer.lock
+└── vendor/                                   (committed — WP plugins ship vendor/; .gitignore relaxed)
+    └── dompdf/                               (PDF generation — single runtime dep)
 ```
 
 **Scale target:** ~8-12K LOC PHP (WholesaleX is 39K doing more, with worse separation). JS is vanilla — VRS/APA/GAW all avoid frameworks; we match that.
@@ -139,6 +153,7 @@ wp_amw_quotes
   subtotal DECIMAL(12,2), tax DECIMAL(12,2), total DECIMAL(12,2),
   customer_notes TEXT, admin_notes TEXT,
   expires_at DATETIME, submitted_at DATETIME, decided_at DATETIME,
+  accept_token_issued_at DATETIME NULL, accept_token_used_at DATETIME NULL,
   created_at, updated_at,
   INDEX (customer_id, status), INDEX (status, expires_at), UNIQUE (uuid)
 
@@ -174,6 +189,8 @@ wp_amw_audit_log
 
 Indexes chosen for the three real query patterns: "my open quotes" (`customer_id + status`), "quotes to review" (`status + submitted_at`), "expiring soon" (`status + expires_at`). WholesaleX scans serialized `wp_options` for all of this — we can't repeat that.
 
+**`expired` state origin:** a daily cron (`amw_quote_expiry_sweep`) transitions any quote in `submitted | reviewing | approved` whose `expires_at < NOW()` to `expired`. `expired` is terminal — no further transitions; customer can clone a new draft from it.
+
 **No** custom post types (WooCommerce orders remain the single source of truth for actual purchases). **No** postmeta for quote items (direct relational table). **Postmeta only** for per-product B2B tier pricing (extends existing WC product screen, no new CPTs).
 
 ---
@@ -185,11 +202,18 @@ Indexes chosen for the three real query patterns: "my open quotes" (`customer_id
 3. **Server creates quote** — `Quote_Service::submit()` validates stock, recomputes prices server-side (never trust client prices), inserts `wp_amw_quotes` + `wp_amw_quote_items`, sets status `submitted`, writes audit log.
 4. **Notify** — emails fire: customer gets "Quote received," admin gets "New quote #XXX."
 5. **Admin reviews** — WP admin → Wholesale → Quotes list (WP_List_Table). Click quote → edit screen: adjust line prices, add admin notes, approve/reject.
-6. **Approve** — moves quote to `approved`. `Email_Quote_Approved` sends customer an accept link with nonced URL.
-7. **Customer accepts** — single click at URL verifies nonce, triggers `Invoice_Service::generate_from_quote($quote_id)`:
-   - Atomically (DB transaction): creates `wp_amw_invoices` row, generates sequential invoice number, creates a WooCommerce order (HPOS) marked `awaiting-payment`, renders PDF via Dompdf, saves to `uploads/amw-wholesale-invoices/{yyyy}/{mm}/INV-xxxxx.pdf` with `.htaccess` denying direct web access.
+6. **Approve** — moves quote to `approved`. `Email_Quote_Approved` sends customer a single-use HMAC accept link (see auth model below).
+7. **Customer accepts** — clicking the link hits `/wholesale/quote/{uuid}/accept?t={hmac}`; handler verifies HMAC with `hash_equals()`, confirms `accept_token_used_at IS NULL`, then triggers `Invoice_Service::generate_from_quote($quote_id)`:
+   - Atomically (DB transaction): inserts `wp_amw_invoices` row (invoice number = `'INV-' . str_pad($id, 6, '0', STR_PAD_LEFT)` using the row's `AUTO_INCREMENT` `id` — race-free, no separate counter), creates a WooCommerce order (HPOS) marked `awaiting-payment`, renders PDF via Dompdf, saves to the private invoice dir (see storage below), flips `accept_token_used_at`.
    - Emails customer PDF invoice + bank transfer details.
 8. **Payment** — customer pays via bank transfer. Admin manually marks invoice `paid` → WC order moves to `completed` → stock decrement fires via standard WC hooks.
+
+**Customer-facing URL auth model** (explicit — UUIDs alone are not authorization):
+- **Quote view** `/wholesale/quote/{uuid}` — requires logged-in session *and* `customer_id` match; UUID is unguessable but the cap/ownership check is the authorization.
+- **Accept link** `/wholesale/quote/{uuid}/accept?t={hmac}` — `t = hash_hmac('sha256', $uuid . '|' . $issued_at, wp_salt('auth'))`, compared with `hash_equals()`, single-use via `accept_token_used_at` column on `wp_amw_quotes`, 7-day TTL enforced against `expires_at`.
+- **Invoice PDF** `/wholesale/invoice/{uuid}/pdf` — logged-in + ownership check; PDF served via `readfile()` through a PHP handler, never by exposing the upload path.
+
+**Invoice PDF storage:** primary location `wp-content/uploads/amw-wholesale-private/{yyyy}/{mm}/INV-xxxxxx.pdf`. The PHP handler is the authoritative access boundary. Defense-in-depth via an `index.php` stub, Apache `.htaccess Deny from all`, and a documented nginx `location` snippet in the README (`.htaccess` is ignored under nginx — ops must apply the snippet on nginx stacks). Never rely on web-server deny alone.
 
 **Why this is less confusing than WholesaleX:**
 - One page, one list, one button ("Add to Quote") — no guessing whether "Add to Cart" triggers a quote or a direct order
@@ -208,7 +232,7 @@ Three rule types at launch:
 - **Quantity break** — qty ≥ N → price = X (config JSON on rule row)
 - **Category discount** — category Y → N% off for role Z
 
-Cache key: `transient('amw_price_' . $product_id . '_' . $user_id, 15min)`. Invalidated on rule save, product save, user role change. Explicit TTLs always (WholesaleX's mistake: unset TTLs = eternal staleness).
+**Cache strategy (split):** `get_price($product_id, $user_id, $qty)` depends on `$qty` via quantity-break rules, so the final price is **not** cached. Instead we cache the *resolved rule set* for `(product_id, user_id)` — `transient('amw_rules_' . $product_id . '_' . $user_id, 15min)` — and evaluate quantity math per-call against that cached set. Invalidated on rule save, product save, user role change. Explicit TTLs always (WholesaleX's mistake: unset TTLs = eternal staleness).
 
 ---
 
@@ -243,6 +267,15 @@ Audit log:
 - Every quote/invoice state change writes to `wp_amw_audit_log` with actor, action, IP, before/after snapshots
 - Admin UI tab shows per-quote history
 
+Rate limiting:
+- Quote submission endpoint rate-limited via a per-user transient counter (max 5 submissions / 10 min); over-limit returns 429.
+
+Logging:
+- All caught exceptions logged via `error_log()` with an `[amw-wholesale]` prefix — never echoed, never exposed in REST responses.
+
+i18n / text domain:
+- All user-facing strings wrapped in `__()` / `esc_html__()` / `_x()` with text domain `amw-wholesale`; `.pot` generated via `wp i18n make-pot` in the release script.
+
 ---
 
 ## Compatibility-warning system (WP-Cron poll)
@@ -266,6 +299,8 @@ Audit log:
 
 Fetches use `wp_remote_get` with `timeout=10`, `redirection=2`, `sslverify=true`. URL hardcoded, not user-configurable — no SSRF surface.
 
+**WP-Cron reliability:** `wp-cron` fires on page loads, so on low-traffic sites the 12h interval degrades. Plugin README recommends a real server cron (`wget --spider https://site/wp-cron.php` or `wp cron event run --due-now`) as a supplement. Plugin behavior degrades gracefully to the last successful compat JSON in the transient.
+
 ---
 
 ## Critical files to create
@@ -273,7 +308,7 @@ Fetches use `wp_remote_get` with `timeout=10`, `redirection=2`, `sslverify=true`
 Listed in build order (each depends only on earlier items):
 
 1. `amw-wholesale.php` + `class-amw-wholesale-plugin.php` — bootstrap, HPOS declare, load order
-2. `class-amw-wholesale-database.php` + `class-amw-wholesale-activator.php` — table creation, schema versioning
+2. `class-amw-wholesale-database.php` + `class-amw-wholesale-activator.php` — table creation, schema versioning (`Database::CURRENT_VERSION` constant; activator compares to `get_option('amw_wholesale_db_version')` and runs ordered `migrations` array — each migration a method keyed by target version)
 3. `helpers/class-sanitizer.php`, `helpers/class-nonce.php` — used everywhere downstream
 4. `customers/class-customer-roles.php` — WP role + capability definitions (`amw_wholesale_customer`)
 5. `pricing/class-price-rule-interface.php` + the 3 rule classes + `class-pricing-engine.php` + `class-pricing-cache.php`
@@ -286,6 +321,7 @@ Listed in build order (each depends only on earlier items):
 12. `compat/class-compat-checker.php` + cron hook
 13. `customers/class-customer-account-pages.php` — My Account integration
 14. `uninstall.php` — clean teardown
+15. `tests/bootstrap.php` + `phpunit.xml` + unit tests — wire PHPUnit and backfill tests for pricing engine, state machine, and sanitizer before admin/emails ship
 
 ---
 
@@ -297,19 +333,6 @@ Listed in build order (each depends only on earlier items):
 - **WP_List_Table subclass** — any existing admin list in `amw-rental-products/includes/admin/`
 - **Schema-based input sanitization** — `amw-rental-products/includes/core/class-vrs-base-ajax.php:42-47` (schema array driving sanitizer) — adopt this for REST arg validation
 - **WC_Email subclasses** — the 9 email classes in `wholesalex/includes/emails/` are a good skeletal reference even though we're not copying WholesaleX code
-
----
-
-## Out of scope for v1 (deliberately)
-
-Per scope decisions: **AMW internal only, PDF-only invoices, WP-Cron polling, quote-first, dedicated catalog page, full replacement**. Therefore these are **not** in v1:
-
-- License server, customer activation, signed update delivery
-- HMAC-signed webhook receiver
-- Xero / MYOB accounting integration (manual mark-as-paid only)
-- Sub-accounts, wallet, conversations, request-a-quote-on-product (WholesaleX Pro addons we don't need)
-- B2B pricing on the main retail storefront (only the dedicated /wholesale page shows B2B prices)
-- Migrating WholesaleX data — fresh start was chosen; ops team re-enters roles/tiers during cutover
 
 ---
 
